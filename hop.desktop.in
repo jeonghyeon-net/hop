@@ -2,5 +2,5 @@
 Type=Application
 Name=hop
 Comment=XF86Tools 키로 작업공간 전환
-Exec=@BINDIR@/hop
+Exec="@BINDIR@/hop"
 OnlyShowIn=XFCE;
