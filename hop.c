@@ -364,9 +364,9 @@ int main(void)
 			continue;
 
 		KeyCode kc = (KeyCode)ev.xkey.keycode; /* X 키코드는 8~255 */
+		int tap = 0;
 		if (held_kc && kc == held_kc) {
-			if (!used)
-				switch_next(ev.xkey.time);
+			tap = !used;
 			held_kc = 0;
 		} else if (held_kc || kbd) {
 			others[kc] = 0;
@@ -390,5 +390,9 @@ int main(void)
 			XFlush(dpy);
 			kbd = 0;
 		}
+
+		/* 키보드를 먼저 놓고 전환해야 그사이 입력이 버려지지 않는다 */
+		if (tap)
+			switch_next(ev.xkey.time);
 	}
 }

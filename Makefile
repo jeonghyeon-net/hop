@@ -14,14 +14,14 @@ hop: hop.c
 
 # BINDIR이 바뀔 수 있으므로 자동 실행 항목은 설치할 때마다 새로 만든다.
 install: hop
-	install -Dm755 hop $(DESTDIR)$(BINDIR)/hop
+	install -Dm755 hop '$(DESTDIR)$(BINDIR)/hop'
 	sed 's|@BINDIR@|$(BINDIR)|' hop.desktop.in > hop.desktop
-	install -Dm644 hop.desktop $(DESTDIR)$(AUTOSTARTDIR)/hop.desktop
+	install -Dm644 hop.desktop '$(DESTDIR)$(AUTOSTARTDIR)/hop.desktop'
 
 # 이 경로로 실행 중인 hop만 종료한다.
 uninstall:
 	-pkill -u "$$(id -u)" -xf '$(BINDIR)/hop'
-	rm -f $(DESTDIR)$(BINDIR)/hop $(DESTDIR)$(AUTOSTARTDIR)/hop.desktop
+	rm -f '$(DESTDIR)$(BINDIR)/hop' '$(DESTDIR)$(AUTOSTARTDIR)/hop.desktop'
 
 clean:
 	rm -f hop hop.desktop
