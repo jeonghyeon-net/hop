@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
 Name=hop
-Comment=Switch workspaces with the XF86Tools key
+Comment=XF86Tools 키로 작업공간 전환
 Exec=@BINDIR@/hop
 OnlyShowIn=XFCE;
