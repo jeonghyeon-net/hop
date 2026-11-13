@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=hop
+Comment=Switch workspaces with the XF86Tools key
+Exec=@BINDIR@/hop
+OnlyShowIn=XFCE;
