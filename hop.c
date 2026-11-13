@@ -21,6 +21,7 @@ static Display *dpy;
 static Window root;
 static Atom a_current, a_count;
 static int grab_failed;
+static unsigned char is_tools[256];
 
 static int on_grab_error(Display *d, XErrorEvent *e)
 {
@@ -95,18 +96,29 @@ int main(void)
 	a_current = XInternAtom(dpy, "_NET_CURRENT_DESKTOP", False);
 	a_count = XInternAtom(dpy, "_NET_NUMBER_OF_DESKTOPS", False);
 
-	KeyCode tools = XKeysymToKeycode(dpy, XF86XK_Tools);
-	if (!tools) {
-		fprintf(stderr, "hop: XF86Tools 키를 찾을 수 없습니다\n");
-		return 1;
-	}
+	/*
+	 * XF86Tools가 여러 키코드에 매핑될 수 있으므로(예: 179, 191)
+	 * XKeysymToKeycode가 돌려주는 첫 번째만이 아니라 전부 잡는다.
+	 */
+	int min_kc, max_kc, n_tools = 0;
+	XDisplayKeycodes(dpy, &min_kc, &max_kc);
 
 	/* 길게 눌렀을 때 Release 없이 Press만 반복되도록 한다 */
 	XkbSetDetectableAutoRepeat(dpy, True, NULL);
 
 	XSetErrorHandler(on_grab_error);
-	XGrabKey(dpy, tools, AnyModifier, root, False, GrabModeAsync,
-		 GrabModeAsync);
+	for (int kc = min_kc; kc <= max_kc; kc++) {
+		if (XkbKeycodeToKeysym(dpy, kc, 0, 0) != XF86XK_Tools)
+			continue;
+		is_tools[kc] = 1;
+		n_tools++;
+		XGrabKey(dpy, kc, AnyModifier, root, False, GrabModeAsync,
+			 GrabModeAsync);
+	}
+	if (!n_tools) {
+		fprintf(stderr, "hop: XF86Tools 키를 찾을 수 없습니다\n");
+		return 1;
+	}
 	XSync(dpy, False);
 	if (grab_failed) {
 		fprintf(stderr, "hop: 다른 프로그램이 이미 Tools 키를 "
@@ -121,7 +133,7 @@ int main(void)
 
 		if (ev.type == KeyPress) {
 			KeyCode kc = ev.xkey.keycode;
-			if (kc == tools) {
+			if (is_tools[kc]) {
 				if (!held) { /* 자동 반복은 무시 */
 					held = 1;
 					used = 0;
@@ -134,7 +146,7 @@ int main(void)
 				}
 			}
 		} else if (ev.type == KeyRelease &&
-			   ev.xkey.keycode == tools && held) {
+			   is_tools[ev.xkey.keycode] && held) {
 			if (!used)
 				switch_next(ev.xkey.time);
 			held = 0;
