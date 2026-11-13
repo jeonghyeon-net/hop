@@ -155,7 +155,7 @@ static void switch_next(Time t)
 	 * 않는다.
 	 */
 	if (last_target >= 0 && last_target < count && cur != last_target &&
-	    t - last_time < PENDING_MS)
+	    (unsigned int)(t - last_time) < PENDING_MS) /* 서버 시각은 32비트 */
 		cur = last_target;
 
 	unsigned char occupied[MAX_DESKTOPS] = {0};
@@ -244,6 +244,12 @@ static int grab_tools(int force, int *n_grabbed)
 /* 잡아 둔 키 중 아직 물리적으로 눌려 있는 게 있는지 */
 static int any_down(const unsigned char *keys)
 {
+	int none = 1;
+	for (int kc = 0; kc < 256 && none; kc++)
+		none = !keys[kc];
+	if (none)
+		return 0; /* 왕복 요청을 아낀다 */
+
 	char map[32];
 	XQueryKeymap(dpy, map);
 	for (int kc = 0; kc < 256; kc++)
@@ -283,7 +289,8 @@ int main(void)
 
 	KeyCode held_kc = 0;         /* 누르고 있는 Tools 키코드, 없으면 0 */
 	int used = 0;                /* 누르는 동안 다른 키를 눌렀는지 */
-	int linger = 0;              /* Tools를 뗀 뒤에도 키보드를 잡고 있는지 */
+	int kbd = 0;                 /* 키보드 전체를 직접(active) 잡고 있는지 */
+	int warned = 0;              /* "키맵에 없음" 메시지를 이미 냈는지 */
 	unsigned char others[256];   /* Tools와 함께 누른 키들 */
 	memset(others, 0, sizeof others);
 
@@ -302,10 +309,16 @@ int main(void)
 			if (ev.xmapping.request != MappingKeyboard)
 				continue;
 			n = grab_tools(0, &grabbed);
-			if (!n)
-				fprintf(stderr, "hop: 키맵이 바뀐 뒤 XF86Tools "
-						"키를 찾을 수 없습니다\n");
-			else if (grabbed == 0)
+			if (!n) {
+				if (!warned)
+					fprintf(stderr, "hop: 키맵이 바뀐 뒤 "
+							"XF86Tools 키를 찾을 수 "
+							"없습니다\n");
+				warned = 1;
+				continue;
+			}
+			warned = 0;
+			if (grabbed == 0)
 				fprintf(stderr, "hop: 키맵이 바뀐 뒤 Tools 키를 "
 						"잡지 못했습니다\n");
 			continue;
@@ -313,13 +326,25 @@ int main(void)
 
 		if (ev.type == KeyPress) {
 			KeyCode kc = (KeyCode)ev.xkey.keycode; /* X 키코드는 8~255 */
-			if (!held_kc && is_tools[kc]) {
+			if (!held_kc && is_tools[kc] && !others[kc]) {
 				held_kc = kc;
 				used = 0;
-				memset(others, 0, sizeof others);
+				/*
+				 * passive grab은 Tools를 떼는 순간 풀린다. 그 뒤
+				 * 다시 잡기까지의 틈에 숫자 자동 반복이 새지 않도록
+				 * 처음부터 키보드를 직접 잡아 둔다.
+				 */
+				if (!kbd) {
+					memset(others, 0, sizeof others);
+					if (XGrabKeyboard(dpy, root, False,
+							  GrabModeAsync, GrabModeAsync,
+							  ev.xkey.time) == GrabSuccess)
+						kbd = 1;
+				}
 			} else if (held_kc) {
-				if (kc == held_kc)
-					continue; /* 자동 반복 */
+				/* Tools 자동 반복, 이미 누른 키의 자동 반복은 무시 */
+				if (kc == held_kc || others[kc])
+					continue;
 				/*
 				 * 숫자가 아닌 키를 눌러도 탭으로 치지 않는다.
 				 * 그 키는 grab 중이라 창에 가지 않고 버려진다.
@@ -329,8 +354,8 @@ int main(void)
 				int idx = digit_index(kc);
 				if (idx >= 0)
 					switch_to(idx, ev.xkey.time);
-			} else if (linger) {
-				others[kc] = 1; /* 뒤늦은 입력도 삼킨다 */
+			} else if (kbd) {
+				others[kc] = 1; /* Tools를 뗀 뒤의 입력도 삼킨다 */
 			}
 			continue;
 		}
@@ -343,32 +368,27 @@ int main(void)
 			if (!used)
 				switch_next(ev.xkey.time);
 			held_kc = 0;
+		} else if (held_kc || kbd) {
+			others[kc] = 0;
+		} else {
+			continue;
+		}
+		if (held_kc)
+			continue;
 
-			/*
-			 * Tools를 숫자보다 먼저 떼면 passive grab이 끝나서,
-			 * 아직 눌린 숫자의 자동 반복이 새 작업공간의 창에
-			 * 입력된다. 함께 누른 키가 다 떨어질 때까지 직접
-			 * 키보드를 잡아 둔다.
-			 */
-			if (any_down(others)) {
-				if (!linger &&
-				    XGrabKeyboard(dpy, root, False, GrabModeAsync,
+		/*
+		 * Tools를 뗐다. 함께 누른 키가 아직 눌려 있으면 그 자동 반복이
+		 * 창에 들어가지 않도록 다 떨어질 때까지 키보드를 계속 잡는다.
+		 */
+		if (any_down(others)) {
+			if (!kbd && XGrabKeyboard(dpy, root, False, GrabModeAsync,
 						  GrabModeAsync,
 						  ev.xkey.time) == GrabSuccess)
-					linger = 1;
-			} else if (linger) {
-				XUngrabKeyboard(dpy, ev.xkey.time);
-				linger = 0;
-			}
-		} else if (held_kc) {
-			others[kc] = 0;
-		} else if (linger) {
-			others[kc] = 0;
-			if (!any_down(others)) {
-				XUngrabKeyboard(dpy, ev.xkey.time);
-				XFlush(dpy);
-				linger = 0;
-			}
+				kbd = 1;
+		} else if (kbd) {
+			XUngrabKeyboard(dpy, ev.xkey.time);
+			XFlush(dpy);
+			kbd = 0;
 		}
 	}
 }

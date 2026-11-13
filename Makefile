@@ -6,23 +6,21 @@ AUTOSTARTDIR ?= $(HOME)/.config/autostart
 CFLAGS ?= -O2 -Wall -Wextra
 PKGS    = x11
 
-X11_FLAGS := $(shell pkg-config --cflags --libs $(PKGS))
-ifeq ($(X11_FLAGS),)
-$(error pkg-config로 $(PKGS)를 찾을 수 없습니다. libX11 개발 패키지를 설치하세요)
-endif
-
 hop: hop.c
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< $(LDFLAGS) $(X11_FLAGS)
+	@pkg-config --exists $(PKGS) || { \
+		echo "pkg-config로 $(PKGS)를 찾을 수 없습니다. libX11 개발 패키지를 설치하세요" >&2; \
+		exit 1; }
+	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< $(LDFLAGS) $$(pkg-config --cflags --libs $(PKGS))
 
-hop.desktop: hop.desktop.in
-	sed 's|@BINDIR@|$(BINDIR)|' $< > $@
-
-install: hop hop.desktop
+# BINDIR이 바뀔 수 있으므로 자동 실행 항목은 설치할 때마다 새로 만든다.
+install: hop
 	install -Dm755 hop $(DESTDIR)$(BINDIR)/hop
+	sed 's|@BINDIR@|$(BINDIR)|' hop.desktop.in > hop.desktop
 	install -Dm644 hop.desktop $(DESTDIR)$(AUTOSTARTDIR)/hop.desktop
 
+# 이 경로로 실행 중인 hop만 종료한다.
 uninstall:
-	-pkill -x hop
+	-pkill -u "$$(id -u)" -xf '$(BINDIR)/hop'
 	rm -f $(DESTDIR)$(BINDIR)/hop $(DESTDIR)$(AUTOSTARTDIR)/hop.desktop
 
 clean:
